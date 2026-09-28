@@ -11,6 +11,19 @@ target_link_libraries(luadch PRIVATE lua)
 # Windows case automatically (no equivalents needed; lua.dll re-exports them).
 if(UNIX)
     target_link_libraries(luadch PRIVATE m ${CMAKE_DL_LIBS})
+
+    find_package(Threads REQUIRED)
+
+    add_library(luadch_i2p_forwarder STATIC
+        i2p_forwarder.cpp
+    )
+    target_compile_features(luadch_i2p_forwarder PUBLIC cxx_std_20)
+    target_include_directories(luadch_i2p_forwarder PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(luadch_i2p_forwarder PUBLIC OpenSSL::Crypto Threads::Threads)
+
+    add_executable(luadch-i2p-forward i2p_forward_main.cpp)
+    target_compile_features(luadch-i2p-forward PRIVATE cxx_std_20)
+    target_link_libraries(luadch-i2p-forward PRIVATE luadch_i2p_forwarder)
 endif()
 
 # Windows: name the binary Luadch.exe (capitalised) and embed the icon.
@@ -23,3 +36,6 @@ if(WIN32)
 endif()
 
 install(TARGETS luadch RUNTIME DESTINATION .)
+if(UNIX)
+    install(TARGETS luadch-i2p-forward RUNTIME DESTINATION .)
+endif()

@@ -94,6 +94,11 @@ add_subdirectory(luasec)
 add_subdirectory(zlib_stream)
 add_subdirectory(hub)
 
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests/i2p)
+endif()
+
 # -----------------------------------------------------------------------------
 # Pure-Lua and runtime tree installs. These are flat copies; matches the
 # legacy compile/compile_with_mingw.bat behaviour 1:1.
