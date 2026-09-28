@@ -39,6 +39,11 @@ local _real = {
     io = io,
     os = os,     -- download_to_file mode uses os.remove / os.rename
     coroutine = coroutine,
+    -- Production denies HTTP before the legacy state machine. This focused
+    -- test exercises that state machine through an explicit test-only stub.
+    i2p_policy = {
+        outbound_http_allowed = function( ) return true end,
+    },
 }
 _G.use = function( name )
     local v = _real[ name ]

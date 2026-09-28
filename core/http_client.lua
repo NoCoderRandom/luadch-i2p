@@ -154,6 +154,7 @@ local out       = use "out"
 local io        = use "io"
 local os        = use "os"
 local coroutine = use "coroutine"
+local i2p_policy = use "i2p_policy"
 
 local coroutine_create = coroutine.create
 local coroutine_yield  = coroutine.yield
@@ -855,6 +856,14 @@ local request
 
 request = function( req )
     if type( req ) ~= "table" then return false, "request: arg must be a table" end
+    local allowed = i2p_policy and i2p_policy.outbound_http_allowed
+    if type( allowed ) ~= "function" then
+        return false, "I2P-only hub: outbound HTTP(S) policy is unavailable"
+    end
+    local enabled, policy_err = allowed( )
+    if enabled ~= true then
+        return false, policy_err or "I2P-only hub: outbound HTTP(S) is disabled"
+    end
     if type( req.url ) ~= "string" then return false, "request: url required" end
 
     -- validate url synchronously so the caller gets immediate feedback

@@ -168,13 +168,13 @@ _core = {    -- luadch core, order is important
     -- cfg + out via `use` at first call to avoid a load-order
     -- cycle with scripts.lua.
     "audit",
-    -- core/http_client.lua: non-blocking OUTBOUND HTTP(S) client for
-    -- plugins (hublist announce, webhooks). Loaded after server is
-    -- available (it lazy-`use`s server.addtimer) and BEFORE scripts
-    -- so the module is in _G when the plugin sandbox iterates the
-    -- whitelist. Touches no server.lua internals - drives a
-    -- non-blocking socket on the existing ~1s timer so the
-    -- single-threaded hub never blocks on an outbound request.
+    -- The I2P fork's non-configurable egress policy loads before
+    -- http_client and scripts. It keeps HTTP(S) disabled even if an
+    -- operator enables a legacy plugin that used to fetch clearnet data.
+    "i2p_policy",
+    -- core/http_client.lua retains bounded parser/state-machine helpers,
+    -- but its request entry point checks i2p_policy before it can create a
+    -- socket, resolve a hostname, or schedule a timer.
     "http_client",
     -- core/geoip_update.lua: in-hub MaxMind GeoLite2 auto-update
     -- (download .tar.gz -> verify sha256 -> gunzip -> untar -> atomic

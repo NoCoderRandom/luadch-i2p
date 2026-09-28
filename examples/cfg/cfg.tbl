@@ -20,18 +20,20 @@ return { -- the settings are a lua table, do not tough this!
     hub_name = "Luadch-NG Hub",  -- name of your hub (string)
     hub_description = "your hub description",  -- hub default description/topic (string)
 
-    hub_hostaddress = "your.host.addy.org",  -- your hostadress (string)
+    hub_hostaddress = "",  -- set this to the b32 address printed by luadch-i2p-forward
 
-    -- TLS-only by default since v3.1.6 (#77). On first boot the hub
-    -- auto-generates a self-signed P-256 cert at certs/servercert.pem
-    -- and logs the keyprint for the adcs:// URL. To enable plain ADC
-    -- alongside, add port numbers to tcp_ports / tcp_ports_ipv6.
-    tcp_ports = { },  -- listen on these ports for normal tcp connections (e.g.: adc://<address>:<port>) (integer array); empty {} = TLS-only
-    ssl_ports = { 5001 },  -- listen on these ports for ssl tcp connections (e.g.: adcs://<address>:<port>) (integer array); to use more than one port use: { port, port, port },
-    tcp_ports_ipv6 = { },  -- listen on these ports for normal tcp IPv6 connections (e.g.: adc://<address>:<port>) (integer array); empty {} = TLS-only
-    ssl_ports_ipv6 = { 5001 },  -- listen on these ports for ssl tcp IPv6 connections (e.g.: adcs://<address>:<port>) (integer array); to use more than one port use: { port, port, port }, -- same port as ssl_ports works since v3.2.x (HTTP/80-style dual-stack)
+    -- Keep this enabled. It admits only I2P-capable fork clients, rejects
+    -- IP/UDP endpoint advertisements, and disables direct clearnet C2C.
+    i2p_only = true,
 
-    hub_listen = { "*" },  -- ADC listener bind address(es): "*" = all interfaces (default); e.g. { "127.0.0.1" } = loopback only. Applies to BOTH IPv4 + IPv6 listeners (a v4-only address yields no IPv6 listener)
+    -- The I2P companion forwarder owns the public endpoint and tunnels only
+    -- into this loopback ADC listener. Do not add public TCP/TLS ports.
+    tcp_ports = { 5000 },  -- loopback target for luadch-i2p-forward only
+    ssl_ports = { },
+    tcp_ports_ipv6 = { },
+    ssl_ports_ipv6 = { },
+
+    hub_listen = { "127.0.0.1" },  -- only accepted ADC listener bind address
 
     -- HBRI (Hub-Bridged Reverse Initiation, #214 / #291 / #286). A dual-stack client advertises a secondary IP family (a concrete address OR the auto-detect placeholder I6:: / I40.0.0.0), but the hub can only authenticate the family matching the connecting TCP source; the OTHER (secondary) family is ALWAYS stripped before broadcast (DDoS-amplification safety). With HBRI enabled the hub asks a supporting client to prove its secondary over a second-family side-channel and, on success, restores the verified secondary to the broadcast INF - the committed address is always the side-channel's authenticated source (getpeername), never a client-stated value. Works at login AND when a secondary first appears in a later INF update (#286).
     hbri_enabled = false,  -- boolean. Default OFF. Effective ONLY when the hub has a listener on BOTH families (tcp_ports/ssl_ports AND tcp_ports_ipv6/ssl_ports_ipv6 - the side-channel rides that port's transport, plain or TLS/autossl) AND both advertise addresses below are set; otherwise the secondary just stays stripped.
@@ -59,7 +61,7 @@ return { -- the settings are a lua table, do not tough this!
     blom_h = 16,  -- bits per slice index (integer, must be a positive multiple of 8 in [8, 64]). 2^h must exceed blom_m, so h=16 (2^16 = 65536) covers any blom_m up to 32768. Raise h together with m for larger shares.
     blom_m = 32768,  -- filter size in BITS (integer multiple of 64). Default 32768 = 4 KiB filter per user. Raise to ~30 * (expected files per share) for a < 5% false-positive rate; e.g. blom_m = 1048576 (128 KiB filter) for a 30k-file share. Larger m costs per-user RAM on the hub.
 
-    use_ssl = true,  -- use ssl (boolean); you have to make a cert for adcs!; use "certs/make_cert.bat/.sh" or "Luadch-NG Certmanager"
+    use_ssl = false,  -- I2P stream encryption protects the hub transport; no local TLS listener is created
 
     hub_website = "https://yourwebsite.org",  -- your website (string)
     hub_network = "your hubnetwork name",  -- your hubnetwork name (string)
@@ -341,7 +343,7 @@ return { -- the settings are a lua table, do not tough this!
     ---------------------------------------------------------------------------------------------------------------------------------
     --// ADC-EXT RDEX (rich redirect) settings
 
-    hub_redirect_protocols = 3,  -- bitmask of redirect URI schemes (ADC=1, ADCS=2, NEODC=4, sum). Default 3 = ADC + ADCS.
+    hub_redirect_protocols = 0,  -- standard ADC/ADCS redirect URLs are disabled in the I2P-only build
     hub_redirect_alternatives = { },  -- list of alternative redirect URLs attached as IQUI.RX on every redirect (array of strings)
     hub_redirect_permanent = false,  -- if true, IQUI carries PT1 so client treats redirect as permanent (boolean)
 

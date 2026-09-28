@@ -118,6 +118,12 @@ local function createbot( _sid, p )
     local hub_email = cfg.get( "hub_email" )
     local hub_bot_email = cfg.get( "hub_bot_email" )
     --local hub_hostaddress = cfg_get( "hub_hostaddress" )
+    local connectivity = " I4 SUADC0,ADCS,TCP4,UDP4"
+    if cfg_get( "i2p_only" ) then
+        -- Hub bots never accept peer connections. Do not advertise the
+        -- inherited clearnet endpoint fields in an I2P-only deployment.
+        connectivity = " SUADC0"
+    end
     local _inf
     if _nick == hubbot then
         _inf = "BINF " .. _sid ..
@@ -127,11 +133,7 @@ local function createbot( _sid, p )
                " OP1 CT5" ..
                " HN0 HR0 HO1" ..
                " SL0 SS0 SF0" ..
-               " I4" .. "" .. --> maybe use external ip
-               --" I4" .. "0.0.0.0" .. --> maybe use external ip
-               --" I4" .. hub_hostaddress .. --"0.0.0.0" .. --> maybe use external ip
-               --" AW" .. "2" ..
-               " SU" .. "ADC0,ADCS,TCP4,UDP4" ..
+               connectivity ..
                " VE" .. "HubBot"
                -- #423: escape the operator-set email like the nick/desc above
                -- (an unescaped space/backslash would break this INF - and since
@@ -151,11 +153,7 @@ local function createbot( _sid, p )
                " OP1 CT5" ..
                " HN0 HR0 HO1" ..
                " SL0 SS0 SF0" ..
-               " I4" .. "" .. --> maybe use external ip
-               --" I4" .. "0.0.0.0" .. --> maybe use external ip
-               --" I4" .. hub_hostaddress .. --"0.0.0.0" .. --> maybe use external ip
-               --" AW" .. "2" ..
-               " SU" .. "ADC0,ADCS,TCP4,UDP4" ..
+               connectivity ..
                " VE" .. "Bot"
 
         _inf = adc_parse( _inf )

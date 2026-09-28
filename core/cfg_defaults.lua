@@ -113,17 +113,24 @@ local defaults = {
             return types_utf8( value, nil, true )
         end
     },
-    hub_hostaddress = { "your.host.addy.org",
+    hub_hostaddress = { "",
         function( value )
             return types_utf8( value, nil, true )
         end
     },
-    -- #77 TLS-only by default: tcp_ports / tcp_ports_ipv6 default to
-    -- empty arrays (no plain ADC listener). ssl_ports / ssl_ports_ipv6
-    -- keep their port numbers; cert is auto-generated on first boot
-    -- by core/cert_bootstrap.lua. Operators who want plain ADC
-    -- alongside opt in via cfg/cfg.tbl with explicit port lists.
-    tcp_ports = { { },
+    -- Require the experimental I2P ADC capability, accept I2P
+    -- destinations instead of IP endpoints, and reject direct peer
+    -- negotiation. This fork must not accept a configuration override
+    -- that re-enables inherited clearnet protocol handling.
+    i2p_only = { true,
+        function( value )
+            return value == true
+        end
+    },
+    -- The I2P forwarder is the only public-facing transport. Luadch itself
+    -- accepts plain ADC solely on a loopback target that the forwarder reaches
+    -- through SAM STREAM FORWARD; no TLS or public TCP listener is created.
+    tcp_ports = { { 5000 },
         function( value )
             if not types_table( value ) then
                 return false
@@ -137,7 +144,7 @@ local defaults = {
             return true
         end
     },
-    ssl_ports = { { 5001 },
+    ssl_ports = { { },
         function( value )
             if not types_table( value ) then
                 return false
@@ -165,7 +172,7 @@ local defaults = {
             return true
         end
     },
-    ssl_ports_ipv6 = { { 5001 },
+    ssl_ports_ipv6 = { { },
         function( value )
             if not types_table( value ) then
                 return false
@@ -223,7 +230,7 @@ local defaults = {
             return value == "" or not value:find( "[%s%c]" )
         end
     },
-    use_ssl = { true,
+    use_ssl = { false,
         function( value )
             return types_boolean( value, nil, true )
         end
@@ -243,7 +250,7 @@ local defaults = {
             return types_utf8( value, nil, true )
         end
     },
-    hub_listen = { { "*" },
+    hub_listen = { { "127.0.0.1" },
         function( value )
             if not types_table( value ) then
                 return false
@@ -2528,7 +2535,8 @@ local defaults = {
     -- advertises support for. Emitted as IINF.RP so clients (and other
     -- hubs redirecting users here) know which URL scheme to use.
     --   1 = ADC, 2 = ADCS, 4 = NEODC (legacy), sum for combinations.
-    --   Default 3 = ADC + ADCS (what luadch itself speaks).
+    --   I2P-only builds default to 0: standard ADC URI schemes would point
+    --   clients at a clearnet endpoint that this fork deliberately lacks.
     -- hub_redirect_alternatives: list of alternative redirect URLs
     -- attached as IQUI.RX on every kick/redirect (cmd_redirect etc).
     -- Clients use these as fallback targets if the primary RD URL is
@@ -2536,7 +2544,7 @@ local defaults = {
     -- hub_redirect_permanent: if true, IQUI carries PT1 so the client
     -- treats the redirect as permanent (e.g. updates its bookmark).
     -- Default false.
-    hub_redirect_protocols = { 3,
+    hub_redirect_protocols = { 0,
         function( value )
             return types_number( value, nil, true ) and value >= 0 and value <= 7
         end

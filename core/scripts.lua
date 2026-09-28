@@ -30,6 +30,8 @@ local _G = use "_G"
 
 local adclib = use "adclib"
 local unicode = use "unicode"
+local socket = use "socket"
+local ssl = use "ssl"
 
 --// extern lib methods //--
 
@@ -44,6 +46,7 @@ local cfg = use "cfg"
 local out = use "out"
 local mem = use "mem"
 local util = use "util"
+local i2p_policy = use "i2p_policy"
 
 --// core methods //--
 
@@ -126,9 +129,9 @@ _code = {    -- mhh...
 --
 -- Removed across Tier-2 sub-PRs (cumulative):
 --   require    Sub-PR-1: plugins now reach modules through
---              whitelisted globals (`ssl`, `basexx`); ssl submodules
---              like `ssl.x509` are pre-attached in core/init.lua so
---              `local x509 = ssl.x509` replaces `require "ssl.x509"`
+--              whitelisted globals; the I2P fork exposes only a
+--              certificate-parser subset of ssl, never socket/TLS
+--              connection constructors.
 --   package    Sub-PR-1: cmd_hubinfo's old `package.config:sub(1,1)`
 --              is replaced by `util.path_sep()` so the whole
 --              `package` library no longer leaks into the sandbox
@@ -206,6 +209,47 @@ local _io_safe = {
         return io.open( path, mode )
     end,
 }
+
+-- I2P-only capability shims. Bundled plugins use only socket.gettime()
+-- for cache deadlines and ssl.x509.load() for local certificate display.
+-- A raw LuaSocket table exposes tcp()/tcp4()/tcp6(), while full LuaSec
+-- exposes wrap()/newcontext(); either would let a plugin bypass SAM and
+-- open a clearnet connection. The proxy tables are read-only so one plugin
+-- cannot grant a capability to another.
+local function readonly_capability( name, members )
+    return setmetatable( { }, {
+        __index = members,
+        __newindex = function( _, key )
+            error( "attempt to modify restricted " .. name .. " capability '" .. tostring( key ) .. "'", 2 )
+        end,
+        __metatable = false,
+    } )
+end
+
+local _socket_members = { }
+if type( socket ) == "table" and type( socket.gettime ) == "function" then
+    _socket_members.gettime = socket.gettime
+end
+local _socket_safe = readonly_capability( "socket", _socket_members )
+
+local _ssl_safe = false
+if type( ssl ) == "table" and type( ssl.x509 ) == "table" and type( ssl.x509.load ) == "function" then
+    _ssl_safe = readonly_capability( "ssl", {
+        x509 = readonly_capability( "ssl.x509", {
+            load = ssl.x509.load,
+        } ),
+    } )
+end
+
+local _http_client_safe = readonly_capability( "http_client", {
+    request = function( )
+        local allowed = i2p_policy and i2p_policy.outbound_http_allowed
+        if type( allowed ) == "function" then
+            return allowed( )
+        end
+        return false, "I2P-only hub: outbound HTTP(S) policy is unavailable"
+    end,
+} )
 --
 -- `hub`, `utf`, `string`, and `PROCESSED` are NOT in the whitelist
 -- because they are written into env explicitly later (see lines
@@ -230,7 +274,7 @@ local SANDBOX_GLOBALS = {
     -- shelling out via io.popen directly.
     "sysinfo",
     -- luadch core modules (always present in _G after init.lua)
-    "cfg", "util", "util_http", "http_filter", "http_events", "http_client", "adc", "adclib", "signal", "out",
+    "cfg", "util", "util_http", "http_filter", "http_events", "adc", "adclib", "signal", "out",
     "audit",
     -- core/secrets.lua (#78 Precursor 0c): sensitive-key registry
     -- + env-var-first cfg lookup. Future API-keyed plugins
@@ -282,7 +326,7 @@ local SANDBOX_GLOBALS = {
     "const",
     -- Extern + optional libs (some are `false` if their require()
     -- in init.lua failed - guarded by `or false` in the iterator below)
-    "ssl", "socket", "basexx", "zlib_stream", "dkjson",
+    "basexx", "zlib_stream", "dkjson",
 }
 
 index = function( tbl, key )
@@ -461,6 +505,12 @@ startscripts = function( hub )
             -- Curated `io` shim (#206 Tier-2 Sub-PR-3). io.popen
             -- is gone; io.open is path-restricted. See `_io_safe`.
             env.io = _io_safe
+            -- I2P-only shims: bundled scripts retain timing and local
+            -- certificate helpers, but no plugin gets a raw network
+            -- constructor or outbound HTTP client.
+            env.socket = _socket_safe
+            env.ssl = _ssl_safe
+            env.http_client = _http_client_safe
             env.hub = hubobject
             env.utf = utf
             env.string = utf

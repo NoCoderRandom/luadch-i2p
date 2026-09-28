@@ -209,6 +209,10 @@ local _serverkey = function( port, family )
     return tostring( port ) .. "/" .. ( family or "ipv4" )
 end
 
+local _is_i2p_loopback = function( address )
+    return address == "127.0.0.1" or address == "::1"
+end
+
 ----------------------------------// PRIVATE //--
 
 wrapserver = function( listeners, socket, serverip, serverport, serverfamily, pattern, sslctx, maxconnections, startssl )    -- this function wraps a server
@@ -908,15 +912,15 @@ addserver = function( p ) -- listeners, port, addr, pattern, sslctx, maxconnecti
         out_error( "server.lua: function 'addserver': ", err )
         return nil, err
     end
-    -- #186: addserver binds p.addr and never read p.ip, but every
-    -- ADC listener in hub.lua passes the hub_listen address as `ip`.
-    -- Result: hub_listen was silently ignored and the hub ALWAYS
-    -- bound 0.0.0.0 / in6addr_any regardless of an operator's
-    -- explicit bind restriction (exposure). Honour `ip` as the bind
-    -- address; explicit `addr` still wins (e.g. the loopback-pinned
-    -- HTTP listener); default "*" (bind-all) is unchanged so the
-    -- default hub_listen = { "*" } config behaves exactly as before.
+    -- Every listener in this fork is local-only. The SAM forwarder is the
+    -- sole public transport; accepting wildcard, hostname, or remote binds
+    -- here would silently create a clearnet endpoint.
     p.addr = p.addr or p.ip or "*"
+    if not _is_i2p_loopback( p.addr ) then
+        err = "I2P-only listeners must bind to numeric loopback"
+        out_error( "server.lua: function 'addserver': ", err )
+        return nil, err
+    end
     local server, err
     -- The IPv6 socket here is created via luasocket.tcp6(), which in
     -- the bundled luasocket (see luasocket/src/inet.c inet_trycreate)

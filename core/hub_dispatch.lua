@@ -39,6 +39,7 @@ local use = use
 
 local pairs = use "pairs"
 local tostring = use "tostring"
+local type = use "type"
 -- Phase 8 S5 BLOM: the HSND handler parses the `bytes` positional
 -- as a number. Core scripts run in a sandboxed env (see
 -- core/init.lua setenv) where tonumber is not in scope - import it
@@ -262,6 +263,110 @@ local function strip_unverified_secondary( adccmd, userfam )
     end
 end
 
+-- Experimental I2P ADC transport extension for this fork. HSUP advertises
+-- ADIIPT; each client then carries its full I2P destination in INF.I2 and
+-- user feature IIPT. Full destinations avoid an address-book lookup during
+-- a later SAM STREAM CONNECT and never expose an IP endpoint.
+local I2P_FEATURE = "IIPT"
+local I2P_DESTINATION_MINIMUM_LENGTH = 516
+
+local function has_su_token( su, wanted )
+    if type( su ) ~= "string" then return false end
+    for token in su:gmatch( "[^,]+" ) do
+        if token == wanted then return true end
+    end
+    return false
+end
+
+local function has_direct_transport_token( su )
+    if type( su ) ~= "string" then return false end
+    for token in su:gmatch( "[^,]+" ) do
+        if token == "TCP4" or token == "TCP6" or token == "UDP4" or
+            token == "UDP6" or token == "NAT0" or token == "SUDP" or
+            token == "CCPM"
+        then
+            return true
+        end
+    end
+    return false
+end
+
+local function is_i2p_destination( value )
+    return type( value ) == "string" and
+        #value >= I2P_DESTINATION_MINIMUM_LENGTH and
+        #value <= 16384 and
+        value:match( "^[A-Za-z0-9+/%-~=]+$" ) ~= nil
+end
+
+-- An initial INF establishes the endpoint, so it must carry I2 and IIPT.
+-- Later INF updates are deltas; they may omit both, but cannot withdraw
+-- IIPT, add an IP/UDP endpoint, or replace I2 with an invalid destination.
+local function validate_i2p_inf( user, adccmd, require_destination )
+    if not user:supports( I2P_FEATURE ) then
+        return false, "I2P transport support is required"
+    end
+
+    local destination = adccmd:getnp "I2"
+    if require_destination and not destination then
+        return false, "An I2P destination is required"
+    end
+    if destination and not is_i2p_destination( destination ) then
+        return false, "The I2P destination is invalid"
+    end
+
+    local su = adccmd:getnp "SU"
+    if require_destination and not has_su_token( su, I2P_FEATURE ) then
+        return false, "The I2P transport feature is required"
+    end
+    if su and not has_su_token( su, I2P_FEATURE ) then
+        return false, "I2P transport support cannot be withdrawn"
+    end
+    if adccmd:getnp( "I4" ) or adccmd:getnp( "I6" ) or
+        adccmd:getnp( "U4" ) or adccmd:getnp( "U6" ) or
+        has_direct_transport_token( su )
+    then
+        return false, "IP and UDP peer endpoints are not allowed"
+    end
+
+    return true
+end
+
+local function reject_i2p_login( user, message )
+    user:kill( "ISTA 220 " .. message .. "\n", "TL-1" )
+    return true
+end
+
+local function reject_i2p_inf( user, message )
+    user:kill( "ISTA 240 " .. message .. "\n", "TL-1" )
+    return true
+end
+
+local function reject_direct_peer_command( user, fourcc )
+    user:sendsta( 144, "Only I2P peer streams are permitted", { FC = fourcc } )
+    return true
+end
+
+local function invalid_i2p_peer_command( user, adccmd, targetuser, fourcc )
+    if not targetuser or not user:supports( I2P_FEATURE ) or
+        not targetuser:supports( I2P_FEATURE ) or
+        adccmd:pos( 4 ) ~= "I2P/1.0"
+    then
+        return reject_direct_peer_command( user, fourcc )
+    end
+    if fourcc == "CTM" and adccmd:pos( 5 ) ~= "0" then
+        return reject_direct_peer_command( user, fourcc )
+    end
+    return false
+end
+
+local function relay_i2p_peer_command( user, adccmd, targetuser, fourcc, listener )
+    if invalid_i2p_peer_command( user, adccmd, targetuser, fourcc ) then return true end
+    local processed = scripts_firelistener( listener, user, targetuser, adccmd )
+    if processed then return processed end
+    if invalid_i2p_peer_command( user, adccmd, targetuser, fourcc ) then return true end
+    return processed
+end
+
 -- The four state-machine handler tables follow verbatim from hub.lua.
 -- The only edits are: replace bare _user_count with _get_user_count(),
 -- since _user_count mutates during normal hub operation and our cached
@@ -271,6 +376,9 @@ _protocol = {
 
     HSUP = function( user, adccmd )
         if adccmd:hasparam "ADBASE" or adccmd:hasparam "ADBAS0" then
+            if cfg_get "i2p_only" and not adccmd:hasparam( "AD" .. I2P_FEATURE ) then
+                return reject_i2p_login( user, "I2P transport support is required" )
+            end
             local response
             if (not _cfg_reg_only) and adccmd:hasparam "ADPING" then
                 local min_share = _cfg_min_share[ 0 ] or 100
@@ -325,6 +433,9 @@ _protocol = {
                     _cfg_max_users,
                     os_difftime( os_time( ), signal_get( "start" ) )
                 )
+                if cfg_get "i2p_only" then
+                    response = response:gsub( "ADUCMD\n", "ADUCMD AD" .. I2P_FEATURE .. "\n", 1 )
+                end
             elseif not _cfg_reg_only then
                 local tpl = _normalsup
                 -- Append Phase 8 feature tokens to the SUP advertise
@@ -337,6 +448,7 @@ _protocol = {
                 -- the S5 BLOM smoke test does the same for ADBLOM,
                 -- so a dropped anchor fails CI loudly.
                 local extras = ""
+                if cfg_get "i2p_only" then extras = extras .. " AD" .. I2P_FEATURE end
                 if _cfg_zlif_enabled then extras = extras .. " ADZLIF" end
                 if _cfg_blom_enabled then extras = extras .. " ADBLOM" end
                 if hbri.active( ) then extras = extras .. " ADHBRI" end    -- #214
@@ -353,6 +465,7 @@ _protocol = {
             elseif _cfg_reg_only then
                 local tpl = _normalsup_regonly
                 local extras = ""
+                if cfg_get "i2p_only" then extras = extras .. " AD" .. I2P_FEATURE end
                 if _cfg_zlif_enabled then extras = extras .. " ADZLIF" end
                 if _cfg_blom_enabled then extras = extras .. " ADBLOM" end
                 if hbri.active( ) then extras = extras .. " ADHBRI" end    -- #214
@@ -421,6 +534,9 @@ _protocol = {
     -- validation socket rides the normal accept path and is identified
     -- purely by this HTCP+token first frame.
     HTCP = function( user, adccmd )
+        if cfg_get "i2p_only" then
+            return reject_i2p_login( user, "IP address validation is unavailable in I2P-only mode" )
+        end
         hbri.validate( user, adccmd )
         return true
     end,
@@ -461,42 +577,52 @@ _identify = {
             scripts_firelistener( "onFailedAuth", ( nick or _i18n.unknown ), ( userip ~= "" and userip or _i18n.unknown ), ( cid or _i18n.unknown ), escapefrom( _i18n.no_cid_nick_found ) )
             return true
         end
-        local userfam = ( userip:find( ":", 1, true ) and "I6" or "I4" )
-        -- Field that the TCP source's family can authenticate. The
-        -- other family (if advertised) is stripped below, post-stamp.
-        local infip_match = ( userfam == "I4" ) and inf_i4 or inf_i6
-        if ( not inf_i4 and not inf_i6 )
-                or infip_match == nil
-                or infip_match == "0.0.0.0"
-                or infip_match == "::" then
-            -- Client advertised no IP for the connecting family (or
-            -- used a spec placeholder, or advertised only the OTHER
-            -- family - which is unusual but legal for a v6-only peer
-            -- reaching us via a v4 socket via a relay etc.). Stamp
-            -- the connecting family with userip. The other family,
-            -- if the client did set it, is stripped below (#214 Gap 1).
-            adccmd:setnp( userfam, userip )
-        elseif infip_match ~= userip then
-            if _cfg_kill_wrong_ips then
-                -- Two %s args ordered (claim, actual) - the user-facing
-                -- message reads more naturally as "you advertise X but
-                -- are connecting from Y". Lang strings updated accordingly.
-                local msg = utf_format( _i18n.invalid_ip, infip_match, userip )
-                user:kill( "ISTA 246 " .. msg .. "\n", "TL-1" )
-                scripts_firelistener( "onFailedAuth", nick, userip, cid, escapefrom( msg ) )
-                return true
-            else
-                -- #214 Gap 2: kill_wrong_ips=false is the NAT-weird-
-                -- deployment opt-out from killing-on-mismatch. The
-                -- opt-out preserves the user's connection but the
-                -- claimed (wrong) IP MUST NOT be broadcast - other
-                -- clients would then direct CTM / RCM at the spoofed
-                -- address (DDoS-amplification, see issue body). Stamp
-                -- the authenticated TCP-source IP over the lie so the
-                -- broadcast INF carries `userip`, not the claim. (The
-                -- secondary family, if any, is additionally stripped
-                -- below by strip_unverified_secondary - #214 Gap 1.)
+        local i2p_only = cfg_get "i2p_only"
+        if i2p_only then
+            local valid, message = validate_i2p_inf( user, adccmd, true )
+            if not valid then
+                return reject_i2p_inf( user, message )
+            end
+        else
+            local userfam = ( userip:find( ":", 1, true ) and "I6" or "I4" )
+            -- Field that the TCP source's family can authenticate. The
+            -- other family (if advertised) is stripped below, post-stamp.
+            local infip_match = ( userfam == "I4" ) and inf_i4 or inf_i6
+            if ( not inf_i4 and not inf_i6 )
+                    or infip_match == nil
+                    or infip_match == "0.0.0.0"
+                    or infip_match == "::" then
+                -- Client advertised no IP for the connecting family (or
+                -- used a spec placeholder, or advertised only the OTHER
+                -- family - which is unusual but legal for a v6-only peer
+                -- reaching us via a v4 socket via a relay etc.). Stamp
+                -- the connecting family with userip. The other family,
+                -- if the client did set it, is stripped below (#214 Gap 1).
                 adccmd:setnp( userfam, userip )
+            elseif infip_match ~= userip then
+                if _cfg_kill_wrong_ips then
+                    -- Two %s args ordered (claim, actual) - the user-facing
+                    -- message reads more naturally as "you advertise X but
+                    -- are connecting from Y". Lang strings updated accordingly.
+                    local msg = utf_format( _i18n.invalid_ip, infip_match, userip )
+                    user:kill( "ISTA 246 " .. msg .. "\n", "TL-1" )
+                    scripts_firelistener( "onFailedAuth", nick, userip, cid, escapefrom( msg ) )
+                    return true
+                else
+                    -- #214 Gap 2: kill_wrong_ips=false is the NAT-weird-
+                    -- deployment opt-out from killing-on-mismatch. The
+                    -- opt-out preserves the user's connection but the
+                    -- claimed (wrong) IP MUST NOT be broadcast - other
+                    -- clients would then direct CTM / RCM at the spoofed
+                    -- address (DDoS-amplification, see issue body). Stamp
+                    -- the authenticated TCP-source IP over the lie so the
+                    -- broadcast INF carries `userip`, not the claim. (The
+                    -- secondary family, if any, is additionally stripped
+                    -- below by strip_unverified_secondary - #214 Gap 1.)
+                    adccmd:setnp( userfam, userip )
+                end
+            else
+                -- Keep the source-family endpoint as the verified claim.
             end
         end
         if cid ~= adclib_hash( pid ) then
@@ -539,6 +665,8 @@ _identify = {
             end
         end
         adccmd:deletenp "PD"
+        if not i2p_only then
+            local userfam = ( userip:find( ":", 1, true ) and "I6" or "I4" )
         -- #214 HBRI: when the hub can validate secondaries, capture the
         -- client's unverified secondary claim BEFORE Gap 1 strips it so
         -- HBRI can re-add it after the side-channel proves the address.
@@ -583,8 +711,9 @@ _identify = {
             end
         end
         strip_unverified_secondary( adccmd, userfam )
+        end
         user:inf( adccmd )
-        if user:hasfeature "CCPM" then user:hasccpm( true ) end
+        if not i2p_only and user:hasfeature "CCPM" then user:hasccpm( true ) end
         -- F-AUTH-NICK (#91): defer insertuser + onConnect when this BINF
         -- is a pending takeover. _usernicks[nick] still belongs to the
         -- existing user; clobbering it before HPAS would re-introduce
@@ -743,6 +872,13 @@ end
 _normal = {
     -- ADC: 6.3.4. INF
     BINF = function( user, adccmd )
+        local i2p_only = cfg_get "i2p_only"
+        if i2p_only then
+            local valid, message = validate_i2p_inf( user, adccmd, false )
+            if not valid then
+                return reject_i2p_inf( user, message )
+            end
+        end
         if rl_inf_drop( user ) then return true end
         -- #286 post-login HBRI: detect a newly-advertised secondary family
         -- and solicit a side-channel BEFORE the onInf strip removes it.
@@ -750,8 +886,19 @@ _normal = {
         -- unverified secondary is still stripped from this broadcast by
         -- hub_inf_manager (the #97/#222 invariant), and only re-added once
         -- the side-channel proves it (core/hbri.lua commit_and_complete).
-        hbri.postlogin_inf( user, adccmd )
-        return scripts_firelistener( "onInf", user, adccmd )
+        if not i2p_only then
+            hbri.postlogin_inf( user, adccmd )
+        end
+        local processed = scripts_firelistener( "onInf", user, adccmd )
+        if i2p_only and not processed then
+            -- Plugins can normalize an INF in onInf. Validate once more
+            -- before hub.lua forwards the resulting frame.
+            local valid, message = validate_i2p_inf( user, adccmd, false )
+            if not valid then
+                return reject_i2p_inf( user, message )
+            end
+        end
+        return processed
     end,
     -- ADC: 6.3.5. MSG
     BMSG = function( user, adccmd )
@@ -772,6 +919,7 @@ _normal = {
     -- ADC: 6.3.8. CTM
     DCTM = function( user, adccmd, targetuser )
         if rl_ctm_drop( user ) then return true end
+        if cfg_get "i2p_only" then return relay_i2p_peer_command( user, adccmd, targetuser, "CTM", "onConnectToMe" ) end
         return scripts_firelistener( "onConnectToMe", user, targetuser, adccmd )
     end,
     -- E-class CTM: modern DC++ uses ECTM in some peer-connection flows
@@ -780,16 +928,19 @@ _normal = {
     -- DCTM - the E-vs-D fan-out is handled in hub.lua's class router.
     ECTM = function( user, adccmd, targetuser )
         if rl_ctm_drop( user ) then return true end
+        if cfg_get "i2p_only" then return relay_i2p_peer_command( user, adccmd, targetuser, "CTM", "onConnectToMe" ) end
         return scripts_firelistener( "onConnectToMe", user, targetuser, adccmd )
     end,
     -- ADC: 6.3.9. RCM
     DRCM = function( user, adccmd, targetuser )
         if rl_ctm_drop( user ) then return true end
+        if cfg_get "i2p_only" then return relay_i2p_peer_command( user, adccmd, targetuser, "RCM", "onRevConnectToMe" ) end
         return scripts_firelistener( "onRevConnectToMe", user, targetuser, adccmd )
     end,
     -- E-class RCM, symmetric to ECTM above.
     ERCM = function( user, adccmd, targetuser )
         if rl_ctm_drop( user ) then return true end
+        if cfg_get "i2p_only" then return relay_i2p_peer_command( user, adccmd, targetuser, "RCM", "onRevConnectToMe" ) end
         return scripts_firelistener( "onRevConnectToMe", user, targetuser, adccmd )
     end,
     -- ADC-EXT 3.9 NATT. Hub-relay-only NAT-traversal between two peers.
@@ -801,10 +952,12 @@ _normal = {
     -- setup.
     DNAT = function( user, adccmd, targetuser )
         if rl_ctm_drop( user ) then return true end
+        if cfg_get "i2p_only" then return reject_direct_peer_command( user, "NAT" ) end
         return scripts_firelistener( "onNatTraversal", user, targetuser, adccmd )
     end,
     DRNT = function( user, adccmd, targetuser )
         if rl_ctm_drop( user ) then return true end
+        if cfg_get "i2p_only" then return reject_direct_peer_command( user, "RNT" ) end
         return scripts_firelistener( "onNatTraversalReply", user, targetuser, adccmd )
     end,
     -- ADC: 6.3.6. SCH
