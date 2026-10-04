@@ -1,93 +1,45 @@
-# luadch-ng
-[![License](https://img.shields.io/badge/license-GPLv3.0-blueviolet.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20ARM-orange.svg)](docs/BUILDING.md)
-[![Lua](https://img.shields.io/badge/lua-5.4.8-blue.svg)](https://www.lua.org/)
-[![Release](https://img.shields.io/github/v/release/luadch-ng/luadch-ng.svg)](https://github.com/luadch-ng/luadch-ng/releases/latest)
-[![GHCR](https://img.shields.io/badge/ghcr.io-amd64%20%7C%20arm64-blue?logo=docker)](https://github.com/luadch-ng/luadch-ng/pkgs/container/luadch-ng)
-[![Translation status](https://translate.dcvault.net/widget/luadch-ng/svg-badge.svg)](https://translate.dcvault.net/engage/luadch-ng/)
+# Luadch-I2P
 
-A modernised fork of [luadch](https://github.com/luadch/luadch), an ADC(S) hub for the [Direct Connect](https://dcvault.net/docs/basics/what-is-direct-connect) network. Originally by **blastbeat** and **pulsar**. Check out our [Support Hub](https://dcvault.net/docs/community/support-hub) or [Support Forum](https://forum.dcvault.net) if you have any questions or problems, or just to chat.
+Experimental I2P-only Direct Connect hub for AirDC++-I2P. Based on luadch-ng /
+Luadch; original authors and licenses are preserved.
 
-Help us translate Luadch-ng into your language. Visit our [Translation Hub](https://translate.dcvault.net/projects/luadch-ng/)
+## Debian Server Package
 
-🔴🔴 **REPO RENAMED `luadch` → `luadch-ng` - the Docker image moved from `ghcr.io/luadch-ng/luadch` to `ghcr.io/luadch-ng/luadch-ng`.**
+First target: **Debian 13, x86-64, systemd**. Includes a private i2pd router.
+No separate I2P installation, SAM/tunnel configuration, port forwarding or
+firewall exceptions are required.
 
-🔴🔴 **BETA SOFTWARE - Version 3.2.0 not released yet. Use 3.1 for stable release**
+Download the `.deb` and `SHA256SUMS` from this fork's
+[releases](https://github.com/NoCoderRandom/luadch-i2p/releases), then:
 
-## Features in 3.2
-
-- 📜 Full ADC hub protocol support, TLS 1.3, ADCS-only
-- 🥷 Private only & public hub features
-- ↔️ IPv4 & IPv6 dual-stack (*HBRI for active mode NAT traversal)
-- 🔒 Hardened by default - plugin sandbox, rate limits
-- 🐍 Lua 5.4.8 scripting API + lots of bundled plugins
-- 🪶 Low footprint (~ 30 MB RAM), ARM-ready
-- ⚡ HTTP API - full REST management (users, bans, config, plugins, logs)
-- 📥 Simple Webhook System
-- 💬 Multilanguage support (i18n)
-- 🛡️ Blocklist engine + external feeds (Tor, Spamhaus, AbuseIPDB)
-- 🌍 GeoIP country/ASN policy + in-hub MaxMind auto-update
-- 🕵️ Proxy/VPN/Tor detection
-- 📦 Encrypted backup & restore system
-- 📊 Prometheus metrics + polled event stream
-- 🐳 Prebuilt binaries Windows, Linux + multi-arch Docker Image
-
-*[HBRI](https://forum.dcvault.net/t/hbri-ipv4-ipv6-verification-for-hybrid-hubs/22) is not an official ADC specification and was proposed as a protocol extension in DCBase in 2012. AirDC++ implemented this in its client in 2013.
-
-
-## ToDo
-- 🌐 Web interface for hub management (in progress in the companion repo `luadch-ng-webui`; backed by this hub's HTTP + webhook management API, but not part of this repo's release)
-
-## Quick Start
-
-### Docker (recommended)
-```bash
-git clone https://github.com/luadch-ng/luadch-ng.git
-cd luadch-ng
-cp .env.example .env   # Adjust PUID/PGID if `id -u` != 1000
-docker compose up -d
-```
-Multi-arch image (`ghcr.io/luadch-ng/luadch-ng:latest`), runs as an unprivileged user. Upon first startup, a self-signed TLS certificate is generated, and the keyprint for the `adcs://` URL is logged.
-
-### Prebuilt binaries
-Linux (x86_64 + aarch64) and Windows x86_64 builds are included with every [release](https://github.com/luadch-ng/luadch-ng/releases/latest) - just unzip and run. OpenWRT routers get a ready-to-install `.apk` for three common arches; see the [OpenWRT section](docs/BUILDING.md#-openwrt-routers) of the build guide.
-
-### From source
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-cmake --install build
-cd build/install/luadch && ./luadch
+```sh
+sha256sum --ignore-missing -c SHA256SUMS
+sudo apt install ./luadch-i2p_0.1.0~poc1_amd64.deb
+sudo luadch-i2p info
 ```
 
-Then connect to `adcs://127.0.0.1:5001` using an ADC client (e.g., AirDC++), and log in with `dummy` / `test`. Getting started: [CONFIGURATION.md](docs/CONFIGURATION.md).
+The last command shows the hub address and generated administrator credentials.
+I2P can need several minutes to establish usable tunnels. Connect with
+**AirDC++-I2P**, not an ordinary DC++ client. Registered members can use chat,
+search and peer transfers; see the [operator guide](docs/DEBIAN_POC_PACKAGE.md).
 
-## Documentation
+This is a PoC, not a production anonymity product. A draft/prerelease does not
+mean final two-client acceptance is complete. The repositories remain private
+until the owner approves publication.
 
-[Building](docs/BUILDING.md) · [Installing](docs/INSTALLING.md) · [Configuration](docs/CONFIGURATION.md) · [Scripts](docs/SCRIPTS.md) · [Security](docs/SECURITY.md) · [Docker](docs/DOCKER.md) · [Plugin API](docs/PLUGIN_API.md)
+## Architecture
 
-## Links
+`I2P peers -> private i2pd -> SAM forwarder -> loopback-only Luadch`
 
-- 💬 [DCVault Forum](https://forum.dcvault.net)
-- 🐦 [Support Hub](https://dcvault.net/docs/community/support-hub)
-- 📧 [DCVault Wiki](https://dcvault.net)
+All three processes are managed together. Keys persist with restrictive
+permissions. A managed-process failure takes the service offline. The SAM
+listener must belong to the router we started. Other installed I2P instances
+and host firewall rules are not changed. Local SAM registration is not proof
+of remote I2P reachability.
 
-## Credits and Acknowledgements
+[Package guide](docs/DEBIAN_POC_PACKAGE.md) |
+[Threat model](docs/THREAT_MODEL.md) | [License](LICENSE)
 
-Conceptual credit goes to **[@blastbeat](https://github.com/blasti)** and **[@pulsar](https://github.com/pulsar-de)**, the original authors. This fork only modernizes and extends their foundation.
-
-A special thank you goes to the following users who helped me during development by suggesting improvements and finding bugs:
-- [@Sopor](https://github.com/Sopor)
-- [@Kcchouette](https://github.com/Kcchouette)
-
-## Contribution
-
-Any help or pull request is welcome. Please open an issue for bugs or improvements.
-
-## AI-Transparency
-
-This fork uses Claude Code to help with analyzing, planning, and writing code.
-
-## License
-
-GPLv3.0 — see [LICENSE](LICENSE).
+`docs/UPSTREAM_README.md` preserves historical upstream documentation for
+reference. Its upstream downloads, Docker images and clearnet instructions
+are **not** this I2P PoC package.

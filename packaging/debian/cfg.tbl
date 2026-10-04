@@ -1,0 +1,20 @@
+
+-- Packaged PoC defaults. Appended to the original table at build time.
+config.hub_name = 'Luadch-I2P Hub'
+config.hub_description = 'I2P-only Direct Connect proof of concept'
+config.hub_website = ''
+config.hub_email = ''
+config.hub_network = ''
+config.hub_owner = 'admin'
+config.i2p_only = true
+config.hub_listen = { '127.0.0.1' }
+config.tcp_ports = { 17650 }
+config.ssl_ports = {}
+config.tcp_ports_ipv6 = {}
+config.ssl_ports_ipv6 = {}
+config.use_ssl = false
+config.hbri_enabled = false
+config.http_port = false
+config.reg_only = true
+-- Keep the traffic manager enabled. Registered members (level 20) may transfer.
+return config

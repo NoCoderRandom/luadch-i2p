@@ -1,0 +1,36 @@
+[Unit]
+Description=Luadch I2P-only hub and private router
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=luadch-i2p
+Group=luadch-i2p
+ExecStart=/usr/lib/luadch-i2p/manage.py run
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+StateDirectory=luadch-i2p
+StateDirectoryMode=0700
+RuntimeDirectory=luadch-i2p
+RuntimeDirectoryMode=0700
+ReadWritePaths=/var/lib/luadch-i2p /run/luadch-i2p
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+case "$1" in
+    remove|purge)
+        if [ -d /run/systemd/system ]; then
+            systemctl disable luadch-i2p.service 2>/dev/null || true
+            systemctl daemon-reload
+        fi
+        echo 'Private hub data and identity retained in /var/lib/luadch-i2p.'
+        ;;
+esac

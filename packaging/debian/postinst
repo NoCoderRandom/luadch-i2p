@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+if [ "$1" = configure ]; then
+    if ! getent passwd luadch-i2p >/dev/null; then
+        adduser --system --group --home /var/lib/luadch-i2p --no-create-home --quiet luadch-i2p
+    fi
+    /usr/lib/luadch-i2p/prepare.py
+    systemctl daemon-reload
+    systemctl enable luadch-i2p.service
+    if [ -x /usr/sbin/policy-rc.d ] && ! /usr/sbin/policy-rc.d luadch-i2p start; then
+        echo 'Service start deferred by local policy. Run: sudo luadch-i2p start'
+    else
+        systemctl start luadch-i2p.service
+    fi
+    echo 'Installed. I2P may need several minutes. Run: sudo luadch-i2p info'
+fi
