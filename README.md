@@ -14,7 +14,7 @@ Download the `.deb` and `SHA256SUMS` from this fork's
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
-sudo apt install ./luadch-i2p_0.1.0~poc1_amd64.deb
+sudo apt install ./luadch-i2p_0.1.0-poc1_amd64.deb
 sudo luadch-i2p info
 ```
 

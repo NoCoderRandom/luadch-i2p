@@ -80,4 +80,5 @@ printf 'Bundled i2pd: %s\nDebian package SHA256: %s\nSource: https://deb.debian.
 # Do not inherit a developer's group-writable umask or source-file modes.
 find "$stage/package" -type d -exec chmod 755 {} +
 find "$stage/package" -type f -exec chmod go-w {} +
-dpkg-deb --root-owner-group --build "$stage/package" "$output_dir/luadch-i2p_${version}_amd64.deb"
+# GitHub rewrites '~' in asset names; keep it only in the Debian Version field.
+dpkg-deb --root-owner-group --build "$stage/package" "$output_dir/luadch-i2p_0.1.0-poc1_amd64.deb"

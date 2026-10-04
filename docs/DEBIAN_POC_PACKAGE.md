@@ -6,7 +6,7 @@ Supported target: Debian 13 x86-64 with systemd. Download the `.deb` and
 SHA256SUMS from this private fork's release; verify the checksum, then:
 
 ```sh
-sudo apt install ./luadch-i2p_0.1.0~poc1_amd64.deb
+sudo apt install ./luadch-i2p_0.1.0-poc1_amd64.deb
 sudo luadch-i2p info
 ```
 
