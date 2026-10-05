@@ -24,7 +24,7 @@ client's successful connection is the actual reachability check.
 ## Connect And Invite
 
 1. Run `sudo luadch-i2p info` on the server.
-2. Add the displayed `adc://...b32.i2p:1511` address in AirDC++-I2P.
+2. Add the displayed `adc://...b32.i2p` address in AirDC++-I2P, without a TCP port.
 3. Log in as `admin` with the generated initial password.
 4. Register each member using `+reg nick MEMBER_NAME 20` in hub chat. It returns
    a generated password. Share that and the address privately with the member.
@@ -110,6 +110,9 @@ The initial package delta was exercised in an isolated Debian 13 VM:
 - Explicit stop reports systemd `inactive`, `success`, exit status 0 and no
   surviving children. A SIGTERM/child-output-EOF race was corrected; unexpected
   child failure still takes the whole service offline.
+- The emitted hub address has no TCP port, matching the production I2P-only
+  client. Native-client integration caught the initial package's erroneous
+  `:1511` suffix; the installed-service test now checks the actual address file.
 
 The first install exposed a Linux i2pd argument difference; its launch was
 corrected. An unavailable old default reseed host required an explicit signed

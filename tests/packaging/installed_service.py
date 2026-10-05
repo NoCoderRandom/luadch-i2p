@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import time
@@ -65,6 +66,7 @@ def main():
         wait_until(sam_active, 'initial local SAM registration')
         identity = (DATA / 'cfg/i2p-hub.private').read_bytes()
         address = (DATA / 'hub-address').read_bytes()
+        assert re.fullmatch(rb'adc://[a-z2-7]{52}\.b32\.i2p\n', address), 'Hub address must not advertise a TCP port'
         assert (DATA / 'cfg/i2p-hub.private').stat().st_mode & 0o777 == 0o600
         assert (DATA / 'setup.txt').stat().st_uid == 0
         original = processes()

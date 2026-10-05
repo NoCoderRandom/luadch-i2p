@@ -136,7 +136,7 @@ def run_service():
                     line, pending = pending.split(b'\n', 1)
                     match = ADDRESS_LINE.fullmatch(line.decode('ascii', errors='replace').strip())
                     if match:
-                        atomic_text(DATA / 'hub-address', 'adc://' + match[1] + ':1511\n')
+                        atomic_text(DATA / 'hub-address', 'adc://' + match[1] + '\n')
                         # SAM setup is not proof of a remotely reachable LeaseSet.
                         status('SAM active; I2P tunnels may still be building')
     except RuntimeError:
