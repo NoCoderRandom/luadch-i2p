@@ -2,9 +2,11 @@ import importlib.util
 import os
 from pathlib import Path
 import socket
+import signal
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 SOURCE = Path(__file__).resolve().parents[2]
 
@@ -21,6 +23,53 @@ prepare = module('prepare')
 
 
 class PackageHelpers(unittest.TestCase):
+    def test_stop_signal_racing_child_eof_or_exit(self):
+        for event in ('stop-eof', 'stop-exit', 'unexpected-eof', 'unexpected-exit'):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
+                handlers = {}
+                router, hub, forward = Mock(), Mock(), Mock()
+                children = (router, hub, forward)
+                for child in children:
+                    child.poll.return_value = None
+                selector = Mock()
+
+                def select(**_kwargs):
+                    if event == 'stop-eof':
+                        handlers[signal.SIGTERM](signal.SIGTERM, None)
+                    return [(SimpleNamespace(fd=123), None)]
+
+                def poll():
+                    if event == 'stop-exit':
+                        handlers[signal.SIGTERM](signal.SIGTERM, None)
+                    return 1
+
+                selector.select.side_effect = select
+                if event.endswith('exit'):
+                    # The first poll occurs during startup, before wait_owned returns.
+                    calls = iter([None])
+                    def router_poll():
+                        try:
+                            return next(calls)
+                        except StopIteration:
+                            return poll()
+                    router.poll.side_effect = router_poll
+                with patch.object(manage, 'RUN', Path(directory)), \
+                        patch.object(manage.os, 'umask'), \
+                        patch.object(manage, 'free_port', return_value=1234), \
+                        patch.object(manage, 'owns_listener', return_value=True), \
+                        patch.object(manage.signal, 'signal', side_effect=lambda sig, fn: handlers.update({sig: fn})), \
+                        patch.object(manage.subprocess, 'Popen', side_effect=children), \
+                        patch.object(manage.selectors, 'DefaultSelector', return_value=selector), \
+                        patch.object(manage.os, 'read', return_value=b''):
+                    if event.startswith('stop-'):
+                        manage.run_service()
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            manage.run_service()
+                for child in children:
+                    child.wait.assert_called_once()
+                self.assertFalse((Path(directory) / 'status.json').exists())
+
     def test_owned_listener_not_just_open_port(self):
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0))

@@ -97,13 +97,19 @@ is a separate gate. Do not claim it passed based on installation alone.
 
 The initial package delta was exercised in an isolated Debian 13 VM:
 
-- Five helper tests: own-vs-foreign SAM listener, private atomic status writes,
-  destination syntax, first setup/reinstall/interrupted setup, symlink refusal.
+- Six helper tests: own-vs-foreign SAM listener, private atomic status writes,
+  destination syntax, first setup/reinstall/interrupted setup, symlink refusal,
+  and intentional-stop races versus unexpected child EOF/exit.
 - Installation and automatic startup; only numeric-loopback DC sockets.
 - Stop with no child processes left; restart with the same identity/address.
 - Managed-router termination: old hub/forwarder stopped, automatic recovery
   retained the identity and local-only DC sockets.
 - Package privacy/permissions scan and systemd unit validation.
+- A clean GitHub-downloaded installation was reached through a second I2P
+  router: ADC negotiation, generated-admin authentication and hub chat echo.
+- Explicit stop reports systemd `inactive`, `success`, exit status 0 and no
+  surviving children. A SIGTERM/child-output-EOF race was corrected; unexpected
+  child failure still takes the whole service offline.
 
 The first install exposed a Linux i2pd argument difference; its launch was
 corrected. An unavailable old default reseed host required an explicit signed
@@ -113,3 +119,11 @@ No ADC protocol or core transport code was changed for this package.
 To run the installed lifecycle delta in a disposable VM only:
 `sudo python3 tests/packaging/installed_service.py --disposable-vm`.
 It stops the service on completion. It is not included in the installed payload.
+Use `--case orderly-stop` to check just startup and intentional shutdown.
+
+A separate lab probe initially sent CRLF SAM commands. With i2pd 2.56.0,
+`STREAM CONNECT` injected an extra byte ahead of ADC data. Replaying the
+captured input with/without that byte isolated the failure. Using LF, as the
+production Windows client's `SamSocket::writeLine` already does, passed the
+live connection test. No ADC parser relaxation or transport workaround was
+added to the server. Two-native-Windows-client acceptance remains pending.

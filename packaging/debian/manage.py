@@ -139,6 +139,10 @@ def run_service():
                         atomic_text(DATA / 'hub-address', 'adc://' + match[1] + ':1511\n')
                         # SAM setup is not proof of a remotely reachable LeaseSet.
                         status('SAM active; I2P tunnels may still be building')
+    except RuntimeError:
+        # systemd signals the whole control group: child EOF/exit may race SIGTERM.
+        if not stopping:
+            raise
     finally:
         selector.close()
         for child in reversed(children):

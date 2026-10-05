@@ -56,7 +56,8 @@ def assert_local_only(pid):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--disposable-vm', action='store_true', required=True)
-    parser.parse_args()
+    parser.add_argument('--case', choices=('all', 'orderly-stop'), default='all')
+    args = parser.parse_args()
     assert os.geteuid() == 0
     subprocess.run(['systemd-detect-virt', '--vm', '--quiet'], check=True)
     try:
@@ -75,6 +76,13 @@ def main():
         service('stop')
         assert all(not Path(f'/proc/{pid}').exists() for pid in original.values())
         assert not STATE.exists()
+        stopped = subprocess.check_output([
+            'systemctl', 'show', 'luadch-i2p', '-p', 'ActiveState', '-p', 'Result', '-p', 'ExecMainStatus'
+        ], text=True).splitlines()
+        assert set(stopped) == {'ActiveState=inactive', 'Result=success', 'ExecMainStatus=0'}, stopped
+        print('PASS: manual stop reports inactive/success and leaves no children', flush=True)
+        if args.case == 'orderly-stop':
+            return
         service('start')
         wait_until(sam_active, 'restart local SAM registration')
         assert (DATA / 'cfg/i2p-hub.private').read_bytes() == identity
