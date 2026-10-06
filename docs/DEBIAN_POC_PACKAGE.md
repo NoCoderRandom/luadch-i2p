@@ -129,4 +129,13 @@ A separate lab probe initially sent CRLF SAM commands. With i2pd 2.56.0,
 captured input with/without that byte isolated the failure. Using LF, as the
 production Windows client's `SamSocket::writeLine` already does, passed the
 live connection test. No ADC parser relaxation or transport workaround was
-added to the server. Two-native-Windows-client acceptance remains pending.
+added to the server.
+
+On 2026-10-06 the package, with the portless-address correction, accepted two
+native Windows clients with separate private routers and normal registered
+member accounts. Bidirectional hub/private chat, peer file lists, hub-routed
+searches and complete 1 MiB transfers passed; independent SHA-256 checks
+matched at both destinations. Automation used the clients' production Web API.
+Traffic-manager protections remained enabled. No core/protocol change was
+needed. See the release notes for official-ISO and final artifact results.
+This is functional PoC evidence, not a blanket security/anonymity guarantee.
