@@ -1714,22 +1714,22 @@ init = function( )
     scripts.start( _luadch )
     for i, port in pairs( cfg_get "tcp_ports" ) do
         for j, ip in pairs( cfg_get "hub_listen" ) do
-            add_server_handler{ listeners = { incoming = newuser, disconnect = disconnect }, port = port, ip = ip }
+            add_server_handler{ listeners = { incoming = newuser, disconnect = disconnect, sam = true }, port = port, ip = ip }
         end
     end
     for i, port in pairs( cfg_get "ssl_ports" ) do
         for j, ip in pairs( cfg_get "hub_listen" ) do
-            add_server_handler{ listeners = { incoming = newuser, disconnect = disconnect }, port = port, ip = ip, sslctx = cfg_get "ssl_params", maxconnections = 10000, startssl = true }
+            add_server_handler{ listeners = { incoming = newuser, disconnect = disconnect, sam = true }, port = port, ip = ip, sslctx = cfg_get "ssl_params", maxconnections = 10000, startssl = true }
         end
     end
     for i, port in pairs( cfg_get "tcp_ports_ipv6" ) do
         for j, ip in pairs( cfg_get "hub_listen" ) do
-            add_server_handler{ listeners = { incoming = newuser, disconnect = disconnect }, port = port, ip = ip, family = "ipv6" }
+            add_server_handler{ listeners = { incoming = newuser, disconnect = disconnect, sam = true }, port = port, ip = ip, family = "ipv6" }
         end
     end
     for i, port in pairs( cfg_get "ssl_ports_ipv6" ) do
         for j, ip in pairs( cfg_get "hub_listen" ) do
-            add_server_handler{ listeners = { incoming = newuser, disconnect = disconnect }, port = port, ip  = ip, sslctx = cfg_get "ssl_params", maxconnections = 10000, startssl = true, family = "ipv6" }
+            add_server_handler{ listeners = { incoming = newuser, disconnect = disconnect, sam = true }, port = port, ip  = ip, sslctx = cfg_get "ssl_params", maxconnections = 10000, startssl = true, family = "ipv6" }
         end
     end
     -- Phase 8 S3 (#82): optional local HTTP listener. Bound to

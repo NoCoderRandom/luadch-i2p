@@ -57,9 +57,10 @@ def assert_private_inf(frame):
                    ("TCP4", "TCP6", "UDP4", "UDP6", "NAT0", "SUDP", "CCPM")), frame
 
 
-def handshake(sock, i2p=True):
+def handshake(sock, i2p=True, destination="A" * 516):
     frames = Frames(sock)
-    send(sock, "HSUP ADBASE ADTIGR" + (" ADIIPT" if i2p else ""))
+    # SAM STREAM FORWARD 3.1 sends the authenticated source before ADC bytes.
+    send(sock, destination + "\nHSUP ADBASE ADTIGR" + (" ADIIPT" if i2p else ""))
     if not i2p:
         assert frames.until(lambda frame: frame.startswith("ISTA ")).startswith("ISTA 220")
         return frames, None
@@ -70,7 +71,7 @@ def handshake(sock, i2p=True):
 
 
 def login(sock, nick, destination):
-    frames, sid = handshake(sock)
+    frames, sid = handshake(sock, destination=destination)
     cid, pid = identity()
     send(sock, f"BINF {sid} ID{cid} PD{pid} NI{nick} I2{destination} "
                "SUIIPT SL1 SS0 SF0 HN0 HR0 HO0")
@@ -96,6 +97,80 @@ def reserve_port():
         return sock.getsockname()[1]
 
 
+def origin_admission(port):
+    with contextlib.ExitStack() as stack:
+        # Different I2P sources must not share the 16-connection loopback cap.
+        for index in range(17):
+            sock = stack.enter_context(socket.create_connection(("127.0.0.1", port), timeout=5))
+            handshake(sock, destination=chr(ord("C") + index) * 516)
+    print("SAM origin: 17 independent destinations admitted")
+
+    def closed(sock):
+        sock.settimeout(12)
+        try:
+            assert sock.recv(8192) == b"", "Rejected source received ADC data"
+        except ConnectionResetError:
+            pass
+
+    with contextlib.ExitStack() as stack:
+        for _ in range(16):
+            sock = stack.enter_context(socket.create_connection(("127.0.0.1", port), timeout=5))
+            handshake(sock, destination="V" * 516)
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as extra:
+            send(extra, "V" * 516 + "\nHSUP ADBASE ADTIGR ADIIPT")
+            closed(extra)
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as other:
+            handshake(other, destination="W" * 516)
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as released:
+        handshake(released, destination="V" * 516)
+
+    for header in ("HSUP ADBASE ADIIPT", "127.0.0.1", "::1", "X" * 16385):
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            send(sock, header)
+            closed(sock)
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as split:
+        split.sendall(b"Y" * 200)
+        split.settimeout(0.1)
+        try:
+            split.recv(1)
+            raise AssertionError("Partial SAM header created a hub user")
+        except TimeoutError:
+            pass
+        send(split, "Y" * 316 + "\nHSUP ADBASE ADTIGR ADIIPT")
+        assert "ADIIPT" in Frames(split).until(lambda frame: frame.startswith("ISUP "))
+    with contextlib.ExitStack() as stack:
+        for _ in range(64):
+            sock = stack.enter_context(socket.create_connection(("127.0.0.1", port), timeout=5))
+            sock.sendall(b"Z")
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as overflow:
+            closed(overflow)
+        closed(sock)  # Pending metadata has a fixed deadline, even with rate limits disabled.
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as recovered:
+        handshake(recovered, destination="a" * 516)
+    print("SAM origin: source cap/release, isolation, framing, pending cap/timeout passed")
+
+
+def origin_auth_failures(port):
+    source = "g" * 516
+    for index in range(6):
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            frames, sid = handshake(sock, destination=source)
+            cid, pid = identity()
+            send(sock, f"BINF {sid} ID{cid} PD{pid} NIOriginAuth{index} I2{source} SUIIPT SL1 SS0")
+            frames.until(lambda frame: frame.startswith("IGPA "))
+            send(sock, "HPAS " + "A" * 39)
+            assert frames.until(lambda frame: frame.startswith("ISTA ")).startswith("ISTA 223 ")
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as blocked:
+        send(blocked, source + "\nHSUP ADBASE ADTIGR ADIIPT")
+        try:
+            assert blocked.recv(8192) == b""
+        except ConnectionResetError:
+            pass
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as other:
+        login(other, "Unaffected", "h" * 516)
+    print("SAM origin: real failed-auth lockout affects only its source destination")
+
+
 def run(install):
     with tempfile.TemporaryDirectory(prefix="luadch-i2p-boundary-") as root:
         staged = Path(root) / "luadch"
@@ -105,14 +180,21 @@ def run(install):
         port = reserve_port()
         for pattern, replacement in (
             (r"(?m)^    tcp_ports = \{ 5000 \}", f"    tcp_ports = {{ {port} }}"),
-            (r"(?m)^    reg_only = true", "    reg_only = false"),
-            (r"(?m)^    etc_trafficmanager_activate = true", "    etc_trafficmanager_activate = false"),
+            (r"(?m)^    reg_only = (?:true|false)", "    reg_only = false"),
+            (r"(?m)^    etc_trafficmanager_activate = (?:true|false)", "    etc_trafficmanager_activate = false"),
             (r"(?m)^    log_events = false", "    log_events = true"),
         ):
             text, count = re.subn(pattern, replacement, text, count=1)
             assert count == 1, pattern
         assert re.search(r"(?m)^    i2p_only = true", text)
         config.write_text(text, encoding="utf-8")
+        # Isolated disposable accounts, never copied from a lab/service profile.
+        users = ["return {"]
+        for index in range(6):
+            users.append(f'{{ badpassword=0, lastconnect=0, level=10, nick="OriginAuth{index}", '
+                         f'password="{secrets.token_hex(24)}", rank="2" }},')
+        users.append("}")
+        (staged / "cfg" / "user.tbl").write_text("\n".join(users), encoding="utf-8")
 
         logfile = staged / "log" / "i2p-boundary.log"
         with logfile.open("wb") as output:
@@ -131,12 +213,16 @@ def run(install):
                             raise AssertionError("hub did not bind its loopback ADC port")
                         time.sleep(0.1)
 
+                origin_admission(port)
+                origin_auth_failures(port)
+
                 with socket.create_connection(("127.0.0.1", port), timeout=5) as stock:
                     handshake(stock, i2p=False)
 
                 destination_a = "A" * 516
                 destination_b = "B" * 516
                 expect_rejected_binf(port, "SUIIPT")
+                expect_rejected_binf(port, f"I2{destination_b} SUIIPT")
                 expect_rejected_binf(port, f"I2{destination_a} SUIIPT I41.2.3.4")
                 expect_rejected_binf(port, f"I2{destination_a} SUIIPT,TCP4")
 

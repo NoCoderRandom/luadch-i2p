@@ -313,6 +313,9 @@ local function validate_i2p_inf( user, adccmd, require_destination )
     if destination and not is_i2p_destination( destination ) then
         return false, "The I2P destination is invalid"
     end
+    if destination and destination ~= user:client( ).i2p_destination( ) then
+        return false, "The I2P destination does not match the SAM stream"
+    end
 
     local su = adccmd:getnp "SU"
     if require_destination and not has_su_token( su, I2P_FEATURE ) then
@@ -783,7 +786,7 @@ _verify = {
             -- persist, both for #91 takeover-defence book-keeping and
             -- for Phase 7c F-AUTH-3 per-account bad_pass_timeout.
             profile.badpassword = ( profile.badpassword or 0 ) + 1
-            ratelimit_record_authfail( userip )
+            ratelimit_record_authfail( user:client( ).ratelimitkey( ) )
             cfg_saveusers( _regusers )
             user:kill( "ISTA 223 " .. _i18n.invalid_pass .. "\n", "TL-1" )
             scripts_firelistener( "onFailedAuth", profile.nick, userip, usercid, escapefrom( _i18n.invalid_pass ) )

@@ -166,6 +166,14 @@ local _timer
 
 local _maxclientsperserver
 
+-- Only the private SAM forwarder may reach ADC listeners. Bound the time,
+-- memory and sockets spent waiting for its authenticated source preamble.
+local _sam_pending = { }
+local _sam_pending_count = 0
+local SAM_PENDING_MAX = 64
+local SAM_HEADER_MAX = 16384
+local SAM_HEADER_TIMEOUT = 10
+
 ----------------------------------// DEFINITION //--
 
 _server = { }    -- key = port .. "/" .. family (e.g. "5001/ipv4"), value = table; list of listening servers
@@ -322,7 +330,7 @@ wrapserver = function( listeners, socket, serverip, serverport, serverfamily, pa
         return serverport
     end
     handler.readbuffer = function( )
-        if connections > maxconnections then
+        if connections >= maxconnections then
             out_put( "server.lua: function 'wrapserver': refused new client connection: server full" )
             return false
         end
@@ -357,7 +365,13 @@ wrapserver = function( listeners, socket, serverip, serverport, serverfamily, pa
             -- Phase 7c F-NET-1: per-IP parallel-socket cap and per-IP
             -- accept-rate cap. Refuse pre-wrap so the offending IP cannot
             -- consume FDs / slot-list entries.
-            local ok, rl_err = ratelimit_accept_ip( clientip )
+            local ok, rl_err
+            if listeners.sam then
+                ok = _is_i2p_loopback( clientip ) and _sam_pending_count < SAM_PENDING_MAX
+                rl_err = "SAM pending admission limit"
+            else
+                ok, rl_err = ratelimit_accept_ip( clientip )
+            end
             if not ok then
                 out_put( "server.lua: function 'wrapserver': rate-limit refused ", clientip, ": ", rl_err )
                 client:close( )
@@ -368,17 +382,19 @@ wrapserver = function( listeners, socket, serverip, serverport, serverfamily, pa
             local _, err2 = client:setoption( "keepalive", true )
             if err or err2 then
                 out_put( "server.lua: function 'wrapserver', luasocket socket setoption: ", err or err2 )
-                ratelimit_release_ip( clientip )
+                if not listeners.sam then ratelimit_release_ip( clientip ) end
+                client:close( )
                 return false
             end
             local handler, client, err = wrapconnection( handler, listeners, client, serverip, clientip, serverport, clientport, pattern, sslctx, startssl )    -- wrap new client socket
             if err then    -- error while wrapping ssl socket
-                ratelimit_release_ip( clientip )
+                if not listeners.sam then ratelimit_release_ip( clientip ) end
                 return false
             end
             connections = connections + 1
             out_put( "server.lua: function 'wrapserver': accepted new client connection from ", clientip, ":", clientport, " to ", serverport )
-            return dispatch( handler )
+            if not listeners.sam then return dispatch( handler ) end
+            return true
         elseif err then    -- maybe timeout or something else
             out_put( "server.lua: function 'wrapserver': error with new client connection: ", err )
             return false
@@ -404,6 +420,10 @@ wrapconnection = function( server, listeners, socket, serverip, clientip, server
 
     local dispatch = listeners.incoming or listeners.listener
     local disconnect = listeners.disconnect
+    local sam_header = listeners.sam and "" or nil
+    local sam_destination
+    local ratekey = not listeners.sam and clientip or nil
+    local admitted = not listeners.sam
 
     local bufferqueue = { }    -- buffer array
     local bufferqueuelen = 0    -- end of buffer array
@@ -446,6 +466,15 @@ wrapconnection = function( server, listeners, socket, serverip, clientip, server
 
     local handler = { }
 
+    local function finish_sam_pending( )
+        if _sam_pending[ handler ] then
+            _sam_pending[ handler ] = nil
+            _sam_pending_count = _sam_pending_count - 1
+        end
+    end
+    handler.i2p_destination = function( ) return sam_destination end
+    handler.ratelimitkey = function( ) return ratekey end
+
     handler.id = function( )
         return id
     end
@@ -473,7 +502,8 @@ wrapconnection = function( server, listeners, socket, serverip, clientip, server
     end
 
     handler.kill = function( reason )
-        disconnect( handler, reason or fatalerror or "closed" )    -- disconnect handler
+        finish_sam_pending( )
+        if admitted then disconnect( handler, reason or fatalerror or "closed" ) end
         if not fatalerror and ( bufferqueuelen ~= 0 ) then
             send( socket, table_concat( bufferqueue, "", 1, bufferqueuelen ), 1, bufferlen )    -- forced send
         end
@@ -489,7 +519,7 @@ wrapconnection = function( server, listeners, socket, serverip, clientip, server
         socket = nil
         mem_free( )
         _ = server and server.remove( )
-        ratelimit_release_ip( clientip )    -- Phase 7c F-NET-1: free per-IP slot
+        if ratekey then ratelimit_release_ip( ratekey ) end
         out_put "server.lua: function 'wrapconnection': closed client handler and removed socket from lists"
     end
     handler.close = function( forced )
@@ -602,7 +632,8 @@ wrapconnection = function( server, listeners, socket, serverip, clientip, server
         -- plain-TCP nonblocking, "wantread"/"wantwrite" for the luasec
         -- TLS want-dance, or "closed"/other for a real failure
         -- (verified vs luasocket/src/buffer.c buffer_meth_receive).
-        local buffer, err, part = receive( socket, maxreadlen )
+        local readlen = sam_header and ( SAM_HEADER_MAX + 1 - #sam_header ) or maxreadlen
+        local buffer, err, part = receive( socket, readlen )
         _activitytimes[ handler ] = _currenttime
         local data = buffer or part or ""
         local got = string_len( data )
@@ -634,6 +665,38 @@ wrapconnection = function( server, listeners, socket, serverip, clientip, server
                 _sendlist[ _sendlistlen ] = socket
                 _sendlist[ socket ] = _sendlistlen
               end
+            end
+
+            if sam_header then
+                sam_header = sam_header .. data
+                local newline = string.find( sam_header, "\n", 1, true )
+                if not newline then
+                    if #sam_header > SAM_HEADER_MAX or not benign then
+                        handler.close( "invalid SAM source preamble" )
+                    end
+                    return benign
+                end
+                local source = string_sub( sam_header, 1, newline - 1 )
+                if #source < 516 or #source > SAM_HEADER_MAX or
+                    #source % 4 ~= 0 or
+                    not string.match( source, "^[A-Za-z0-9~%-]+=*$" ) or
+                    string.match( source, "===$" )
+                then
+                    handler.close( "invalid SAM source destination" )
+                    return false
+                end
+                local accepted = ratelimit_accept_ip( "i2p:" .. source )
+                if not accepted then
+                    handler.close( "I2P source admission limit" )
+                    return false
+                end
+                ratekey = "i2p:" .. source
+                sam_destination = source
+                data = string_sub( sam_header, newline + 1 )
+                sam_header = nil
+                finish_sam_pending( )
+                admitted = true
+                dispatch( handler ) -- allocate the hub user only after admission
             end
 
             out_put( "server.lua: function 'wrapconnection': read data '", data, "', error: ", err )
@@ -854,6 +917,10 @@ wrapconnection = function( server, listeners, socket, serverip, clientip, server
     -- standard _max_idle_time regardless of listener type.
     _activitytimes[ handler ] = _currenttime
 
+    if listeners.sam then
+        _sam_pending[ handler ] = os_time( )
+        _sam_pending_count = _sam_pending_count + 1
+    end
     return handler, socket
 end
 
@@ -1088,6 +1155,11 @@ _timer = os_time( )
 _starttime = os_time( )
 
 addtimer( function( )
+        for handler, started in pairs( _sam_pending ) do
+            if os_difftime( _currenttime, started ) >= SAM_HEADER_TIMEOUT then
+                handler.close( "SAM source preamble timeout" )
+            end
+        end
         local difftime = os_difftime( _currenttime, _starttime )
         if difftime >= _checkinterval then
             _starttime = _currenttime

@@ -37,6 +37,13 @@ listener must belong to the router we started. Other installed I2P instances
 and host firewall rules are not changed. Local SAM registration is not proof
 of remote I2P reachability.
 
+ADC admission requires the private SAM 3.1 forwarder's source-destination
+preamble. Connection and failed-login limits are keyed to that source, not the
+shared loopback socket address. Advertised peer identity must match the source.
+Incomplete preambles have a 16 KiB size limit, a 10-second deadline and a global
+64-socket pending cap. Keep the local forwarder/listener inside the trusted
+service boundary; the preamble is not authenticated against other local processes.
+
 [Package guide](docs/DEBIAN_POC_PACKAGE.md) |
 [Threat model](docs/THREAT_MODEL.md) | [License](LICENSE)
 
