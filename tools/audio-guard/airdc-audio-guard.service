@@ -1,0 +1,30 @@
+[Unit]
+Description=I2P audio-library filename moderator
+After=network-online.target luadch-i2p.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=audio-guard
+Group=audio-guard
+Environment=HOME=/var/lib/airdc-audio-guard
+WorkingDirectory=/var/lib/airdc-audio-guard
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/airdc-audio-guard/guard.py --config /var/lib/airdc-audio-guard/settings.json --enforce
+Restart=no
+TimeoutStopSec=50
+KillMode=mixed
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/airdc-audio-guard
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=768M
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
