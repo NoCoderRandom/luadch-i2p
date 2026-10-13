@@ -9,11 +9,11 @@ First target: **Debian 13, x86-64, systemd**. Includes a private i2pd router.
 No separate I2P installation, SAM/tunnel configuration, port forwarding or
 firewall exceptions are required.
 
-Download the `.deb` and `SHA256SUMS` from this fork's
-[releases](https://github.com/NoCoderRandom/luadch-i2p/releases), then:
+Download the `.deb` and `SHA256SUMS.txt` from this fork's
+[PoC release](https://github.com/NoCoderRandom/luadch-i2p/releases/tag/v0.1.0-poc.1), then:
 
 ```sh
-sha256sum --ignore-missing -c SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS.txt
 sudo apt install ./luadch-i2p_0.1.0-poc1_amd64.deb
 sudo luadch-i2p info
 ```
@@ -23,9 +23,17 @@ I2P can need several minutes to establish usable tunnels. Connect with
 **AirDC++-I2P**, not an ordinary DC++ client. Registered members can use chat,
 search and peer transfers; see the [operator guide](docs/DEBIAN_POC_PACKAGE.md).
 
-This is a PoC, not a production anonymity product. A draft/prerelease does not
-mean final two-client acceptance is complete. The repositories remain private
-until the owner approves publication.
+This is a public experimental PoC, not a production anonymity product or an
+independently audited security release. Earlier native Windows pair tests
+covered chat, search, file lists and full-file transfers; the release notes
+state the exact checkpoints and remaining verification limits.
+
+Use the [AirDC++-I2P client](https://github.com/NoCoderRandom/airdcpp-i2p).
+Ordinary DC++ clients cannot join. The packaged server defaults to registered
+members; this is separate from an operator choosing to open a public test hub.
+Review the [I2P-specific operator settings](docs/DEBIAN_POC_PACKAGE.md#i2p-specific-operator-settings)
+before inviting users. The optional audio filename moderation bot is in the
+current source tree, not bundled into this older server package.
 
 ## Architecture
 

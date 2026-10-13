@@ -3,7 +3,7 @@
 ## Install
 
 Supported target: Debian 13 x86-64 with systemd. Download the `.deb` and
-SHA256SUMS from this private fork's release; verify the checksum, then:
+SHA256SUMS from this fork's release; verify the checksum, then:
 
 ```sh
 sudo apt install ./luadch-i2p_0.1.0-poc1_amd64.deb
@@ -37,6 +37,24 @@ the initial admin password using the existing account commands before wider
 use; `info` retains the initial setup credential, not later password changes.
 
 ## Operate
+
+### I2P-Specific Operator Settings
+
+The PoC package retains inherited operator policy settings. In
+`/var/lib/luadch-i2p/cfg/cfg.tbl`, keep the `etc_forcetlstransfer.lua` plugin
+disabled (`enabled = false`) for this I2P-only protocol. Its ADCS warning and
+TLS-port-forwarding advice do not apply to I2P peer streams. Disabling that
+policy plugin does not disable I2P encryption or permit ordinary DC endpoints.
+
+Opening a hub to unregistered guests is an operator choice, not the package
+default. It requires both `reg_only = false` (including any final
+`config.reg_only` override) and `[ 0 ] = false` in
+`etc_trafficmanager_blocklevel_tbl` if guests should search and transfer.
+Keep administrator authentication and the other permission levels unchanged.
+Back up private configuration before editing and reload it with the existing
+authenticated operator `+reload` command. Never publish that configuration.
+
+### Service Commands
 
 ```sh
 sudo luadch-i2p status
